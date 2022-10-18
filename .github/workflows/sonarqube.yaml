@@ -1,0 +1,32 @@
+name: sonarqube
+
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  sonarqube:
+    name: sonarqube
+    runs-on: ubuntu-22.04
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    -
+      name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.19
+        cache: true
+    -
+      name: Test Coverage
+      run: |
+        make test
+    -
+      name: SonarCloud Scan
+      uses: sonarsource/sonarcloud-github-action@v1.7
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        SONAR_TOKEN: ${{secrets.SONAR_TOKEN}}
