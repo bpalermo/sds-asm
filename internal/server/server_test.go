@@ -1,26 +1,43 @@
 package server
 
 import (
-	"context"
 	"github.com/bpalermo/sds-asm/internal/log"
 	"github.com/stretchr/testify/assert"
-	"net"
+	"golang.org/x/sync/errgroup"
+	"syscall"
 	"testing"
+	"time"
 )
 
-func TestNewServer(t *testing.T) {
-	s := NewServer(context.Background(), nil, nil)
+func TestNew(t *testing.T) {
+	l := log.Logger{}
+	s, err := New("", "", l)
+	assert.Nil(t, err)
 	assert.NotNil(t, s)
+	assert.NotNil(t, s.c)
+	assert.NotNil(t, s.sigCh)
+	assert.NotNil(t, s.srv)
+	assert.NotNil(t, s.s)
 }
 
-func TestRun(t *testing.T) {
+func TestSdsServer_Run(t *testing.T) {
 	l := log.Logger{}
-	lis, srv, err := Run("/tmp/api.sock", l)
+	s, err := New("", "", l)
+	assert.Nil(t, err)
 
-	defer srv.Stop()
-	defer func(lis net.Listener) {
-		_ = lis.Close()
-	}(lis)
+	errs := &errgroup.Group{}
 
+	errs.Go(func() error {
+		err := s.Run("/tmp/sock.api")
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	time.Sleep(1 * time.Second)
+	s.sigCh <- syscall.SIGTERM
+
+	err = errs.Wait()
 	assert.Nil(t, err)
 }
