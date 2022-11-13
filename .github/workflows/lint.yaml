@@ -1,0 +1,38 @@
+name: lint
+
+on:
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-22.04
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    -
+      name: Lint
+      uses: github/super-linter/slim@v4
+      env:
+        VALIDATE_ALL_CODEBASE: false
+        VALIDATE_GO: false
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  golang-lint:
+    name: golang-lint
+    runs-on: ubuntu-latest
+    steps:
+    -
+      name: Checkout
+      uses: actions/checkout@v3
+    -
+      name: golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: 'latest'
