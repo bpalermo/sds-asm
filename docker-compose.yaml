@@ -1,0 +1,23 @@
+version: "2.4"
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.23-latest
+    ports:
+    - "9901:9901"
+    volumes:
+    - ./.envoy/envoy.yaml:/etc/envoy/envoy.yaml
+    volumes_from:
+    - sds:ro
+    depends_on:
+      sds:
+        condition: service_started
+
+  sds:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+    - "-debug"
+    - "true"
+

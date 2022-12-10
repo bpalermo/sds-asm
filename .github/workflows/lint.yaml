@@ -27,12 +27,22 @@ jobs:
   golang-lint:
     name: golang-lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
     -
       name: Checkout
       uses: actions/checkout@v3
     -
+      name: Setup Golang
+      uses: actions/setup-go@v3
+      with:
+        go-version: '^1.19'
+    -
       name: golangci-lint
       uses: golangci/golangci-lint-action@v3
       with:
         version: 'latest'
+        args: --timeout 3m --verbose
+        only-new-issues: true

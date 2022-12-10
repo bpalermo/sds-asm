@@ -1,31 +1,30 @@
 package log
 
-import "github.com/rs/zerolog/log"
+import (
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+)
 
 type Logger struct {
-	Debug bool
+	zerolog.Logger
 }
 
 // Debugf log to stdout only if Debug is true.
 func (logger Logger) Debugf(format string, args ...interface{}) {
-	if logger.Debug {
-		log.Printf(format+"\n", args...)
-	}
+	log.Printf(format, args...)
 }
 
 // Infof log to stdout only if Debug is true.
 func (logger Logger) Infof(format string, args ...interface{}) {
-	if logger.Debug {
-		log.Printf(format+"\n", args...)
-	}
+	log.Info().Msgf(format, args...)
 }
 
 // Warnf log to stdout always.
 func (logger Logger) Warnf(format string, args ...interface{}) {
-	log.Printf(format+"\n", args...)
+	log.Warn().Msgf(format, args...)
 }
 
 // Errorf log to stdout always.
 func (logger Logger) Errorf(format string, args ...interface{}) {
-	log.Printf(format+"\n", args...)
+	log.Error().Msgf(format, args...)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/bpalermo/sds-asm/internal/helper"
 	"github.com/bpalermo/sds-asm/internal/log"
 	"github.com/bpalermo/sds-asm/internal/server"
 	"github.com/rs/zerolog"
@@ -21,18 +22,33 @@ func init() {
 
 	// The port that this xDS server listens on
 	flag.StringVar(&socketPath, "socket-path", "/tmp/sds-asm/public/api.sock", "xDS socket path")
+
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }
 
 func main() {
 	flag.Parse()
 
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	if debug {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	}
+	srv := setup(debug)
 
-	_, _, err := server.Run(socketPath, l)
+	err := srv.Run(socketPath)
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+func setup(isDebug bool) *server.SdsServer {
+	if isDebug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		l.Infof("debug log enabled")
+	}
+
+	srv, err := server.New(
+		helper.GetEnv("AWS_REGION", "us-east-1"),
+		helper.GetEnv("AWS_ENDPOINT", ""), l)
+	if err != nil {
+		os.Exit(1)
+	}
+
+	return srv
 }

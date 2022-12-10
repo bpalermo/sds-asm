@@ -9,6 +9,10 @@ build:
 test:
 	@go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
+.PHONY: run
+run: build
+	@docker run --rm $(IMAGE_NAME):$(IMAGE_TAG)
+
 .PHONY: lint
 lint:
 	@go vet ./...

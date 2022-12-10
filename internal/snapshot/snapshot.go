@@ -8,9 +8,7 @@ import (
 
 func GenerateSnapshot() *cache.Snapshot {
 	snap, _ := cache.NewSnapshot("1",
-		map[resource.Type][]types.Resource{
-			resource.SecretType: {},
-		},
+		map[resource.Type][]types.Resource{},
 	)
 	return snap
 }
