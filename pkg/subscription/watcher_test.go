@@ -1,14 +1,43 @@
 package subscription
 
 import (
-	"context"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	tlsV3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+)
+
+import (
+	"context"
 	"github.com/bpalermo/sds-asm/internal/log"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
 	"time"
+)
+
+const (
+	expectedSecretId = "test"
+)
+
+var (
+	expectedTlsSecret = &tlsV3.Secret{
+		Name: expectedSecretId,
+		Type: &tlsV3.Secret_TlsCertificate{
+			TlsCertificate: &tlsV3.TlsCertificate{
+				CertificateChain: &v3.DataSource{
+					Specifier: &v3.DataSource_InlineBytes{
+						InlineBytes: make([]uint8, 0),
+					},
+				},
+				PrivateKey: &v3.DataSource{
+					Specifier: &v3.DataSource_InlineBytes{
+						InlineBytes: make([]uint8, 0),
+					},
+				},
+			},
+		},
+	}
 )
 
 type mockSecretsManagerAPI struct {
@@ -25,43 +54,42 @@ func (m mockSecretsManagerAPI) GetSecretValue(_ context.Context, _ *secretsmanag
 	versionIdsToStages[versionId] = versionStages
 	versionIdsToStages[otherVersionId] = otherVersionStages
 	secretId := "dummy-secret-name"
-	secretBinary := []byte{128, 56, 44, 123}
+	secretString := `{"privateKey": "", "certificateChain": ""}`
 
 	return &secretsmanager.GetSecretValueOutput{
 		ARN:           &arn,
 		CreatedDate:   &createDate,
 		Name:          &secretId,
-		SecretBinary:  secretBinary,
+		SecretString:  &secretString,
 		VersionId:     &versionId,
 		VersionStages: versionStages,
 	}, nil
 }
 
 func TestNewWatcher(t *testing.T) {
-	notifyCh := make(chan []byte)
+	notifyCh := make(chan *tlsV3.Secret)
 	w := newWatcher(notifyCh)
 
-	secretId := "test"
-
-	assert.Equal(t, &secretId, w.secretId)
+	assert.Equal(t, expectedSecretId, *w.secretId)
 	assert.NotNil(t, w.ticker)
 }
 
 func TestWatcher_Start(t *testing.T) {
-	notifyCh := make(chan []byte)
+	notifyCh := make(chan *tlsV3.Secret)
 	w := newWatcher(notifyCh)
 	go w.Start()
 
 	s := <-notifyCh
-	assert.Equal(t, []byte{128, 56, 44, 123}, s)
+	assert.Equal(t, expectedTlsSecret, s)
 
 	w.signalCh <- os.Interrupt
 }
 
-func newWatcher(notifyCh chan []byte) *Watcher {
+func newWatcher(notifyCh chan *tlsV3.Secret) *Watcher {
 	l := log.Logger{}
+	nodeId := "test-01"
 	secretId := "test"
 
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	return NewWatcher(notifyCh, &secretId, l, WithApi(mockSecretsManagerAPI{}), WithInterval(50*time.Millisecond, 100*time.Millisecond))
+	return NewWatcher(&nodeId, &secretId, mockSecretsManagerAPI{}, notifyCh, l, WithInterval(50*time.Millisecond, 100*time.Millisecond))
 }

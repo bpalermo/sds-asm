@@ -5,14 +5,20 @@ import (
 	"github.com/bpalermo/sds-asm/internal/log"
 	"github.com/bpalermo/sds-asm/internal/snapshot"
 	"github.com/bpalermo/sds-asm/pkg/subscription"
+	tlsV3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"google.golang.org/grpc/health"
 	grpcHealth "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/protobuf/types/known/anypb"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	zLog "github.com/rs/zerolog/log"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -29,25 +35,33 @@ const (
 )
 
 type SdsServer struct {
-	l     log.Logger
-	c     cache.SnapshotCache
-	sigCh chan os.Signal
-	srv   *grpc.Server
-	s     *subscription.Subscriber
+	cache      cache.SnapshotCache
+	callbacks  *Callbacks
+	grpcServer *grpc.Server
+	l          log.Logger
+	notifyCh   chan *tlsV3.Secret
+	sds        server.Server
+	sigCh      chan os.Signal
 }
 
-func New(awsRegion string, awsEndpoint string, l log.Logger) (*SdsServer, error) {
+func NewServer(awsRegion string, awsEndpoint string, l log.Logger) (*SdsServer, error) {
 	subscriber, err := newSubscriber(awsRegion, awsEndpoint, l)
 	if err != nil {
 		return nil, err
 	}
 
+	grpcServer := newGrpcServer()
+	snapshotCache := newSnapshotCache(l)
+	callbacks := NewCallbacks(subscriber, l)
+
 	return &SdsServer{
-		l:     l,
-		c:     newSnapshotCache(l),
-		sigCh: newSigCh(),
-		srv:   newGrpcServer(),
-		s:     subscriber,
+		cache:      snapshotCache,
+		callbacks:  callbacks,
+		grpcServer: grpcServer,
+		l:          l,
+		notifyCh:   make(chan *tlsV3.Secret),
+		sigCh:      newSigCh(),
+		sds:        newSdsServer(context.Background(), grpcServer, snapshotCache, callbacks),
 	}, nil
 }
 
@@ -60,15 +74,20 @@ func newSnapshotCache(l log.Logger) cache.SnapshotCache {
 
 func newSnapshot(c cache.SnapshotCache, l log.Logger) {
 	// Create the snapshot that we'll serve to Envoy
-	s := snapshot.GenerateSnapshot()
-	if err := s.Consistent(); err != nil {
-		l.Fatal().Err(err).Interface("snapshot", s).Msg("snapshot inconsistency")
+	s, err := snapshot.GenerateSnapshot()
+	if err != nil {
+		zLog.Error().Err(err).Interface("snapshot", s).Msg("could not generate snapshot")
+		return
 	}
-	l.Debug().Interface("snapshot", s).Msg("will serve snapshot")
+	if err = s.Consistent(); err != nil {
+		zLog.Error().Err(err).Interface("snapshot", s).Msg("snapshot inconsistency")
+		return
+	}
+	zLog.Debug().Interface("snapshot", s).Msg("serving snapshot")
 
 	// Add the snapshot to the cache
 	if err := c.SetSnapshot(context.Background(), "test-01", s); err != nil {
-		l.Fatal().Err(err).Interface("snapshot", s).Msg("snapshot error")
+		l.Errorf("snapshot error %+v: %+v", s, err)
 	}
 }
 
@@ -89,6 +108,12 @@ func newGrpcServer() *grpc.Server {
 	return grpc.NewServer(grpcOptions...)
 }
 
+func newSdsServer(ctx context.Context, grpcServer *grpc.Server, cache cache.SnapshotCache, callbacks *Callbacks) server.Server {
+	srv := server.NewServer(ctx, cache, callbacks)
+	registerServer(grpcServer, srv)
+	return srv
+}
+
 func newSigCh() chan os.Signal {
 	sigCh := make(chan os.Signal, 1)
 
@@ -102,47 +127,57 @@ func newSigCh() chan os.Signal {
 }
 
 func newSubscriber(awsRegion string, awsEndpoint string, l log.Logger) (*subscription.Subscriber, error) {
-	return subscription.New(awsRegion, awsEndpoint, l)
+	return subscription.NewSubscriber(awsRegion, awsEndpoint, l)
 }
 
 func (s *SdsServer) Run(socketPath string) error {
-	ctx := context.Background()
-
 	go func() {
-		err := s.startServer(ctx, socketPath)
+		err := s.startServer(socketPath)
 		if err != nil {
-			s.l.Fatal().Err(err).Msg("could not start server")
+			s.l.Errorf("could not start server %+v", err)
 		}
 	}()
 
 	for {
-		sig := <-s.sigCh
-		// stop signal
-		s.l.Infof("got signal %v, attempting graceful shutdown", sig)
-		s.s.Stop()
-		s.srv.GracefulStop()
-		close(s.sigCh)
-		return nil
+		select {
+		case secret := <-s.notifyCh:
+			tlsSecret, _ := anypb.New(secret)
+			snap, err := cache.NewSnapshot("2", map[resource.Type][]types.Resource{
+				resource.SecretType: {
+					tlsSecret,
+				},
+			})
+			if err != nil {
+				s.l.Errorf("could not create snapshot %+v", err)
+			}
+			err = s.cache.SetSnapshot(context.Background(), "test-01", snap)
+			if err != nil {
+				s.l.Errorf("could not set snapshot %+v", err)
+			}
+		case sig := <-s.sigCh:
+			// stop signal
+			s.l.Infof("got signal %v, attempting graceful shutdown", sig)
+			s.callbacks.Stop()
+			s.grpcServer.GracefulStop()
+			close(s.sigCh)
+			return nil
+		}
 	}
 }
 
-func (s *SdsServer) startServer(ctx context.Context, socketPath string) error {
-	srv := server.NewServer(ctx, s.c, &Callbacks{})
-
+func (s *SdsServer) startServer(socketPath string) error {
 	lis, err := net.Listen("unix", socketPath)
 	if err != nil {
-		s.l.Error().Err(err).Msg("could not listen")
+		s.l.Errorf("could not listen %+v", err)
 		return err
 	}
-	s.l.Debug().Str("path", socketPath).Msg("listening at socket")
+	s.l.Debugf("listening at socket %s", socketPath)
 
-	registerServer(s.srv, srv)
-
-	if err = s.srv.Serve(lis); err != nil {
-		s.l.Error().Err(err).Msg("could not serve")
+	if err = s.grpcServer.Serve(lis); err != nil {
+		s.l.Errorf("could not serve %+v", err)
 	}
 
-	s.l.Info().Msg("clean shutdown")
+	s.l.Infof("clean shutdown")
 	return nil
 }
 

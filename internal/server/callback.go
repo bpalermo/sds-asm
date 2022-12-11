@@ -5,6 +5,8 @@ import (
 	"github.com/bpalermo/sds-asm/internal/log"
 	"github.com/bpalermo/sds-asm/pkg/subscription"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	zLog "github.com/rs/zerolog/log"
 	"sync"
 )
 
@@ -19,40 +21,49 @@ type Callbacks struct {
 	mu             sync.Mutex
 }
 
+func NewCallbacks(s *subscription.Subscriber, l log.Logger) *Callbacks {
+	return &Callbacks{
+		Logger:     l,
+		subscriber: s,
+	}
+}
+
 func (cb *Callbacks) Report() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	cb.Logger.Debug().Msgf("startServer callbacks fetches=%d requests=%d\n", cb.Fetches, cb.Requests)
+	cb.Logger.Debugf("startServer callbacks fetches=%d requests=%d", cb.Fetches, cb.Requests)
 }
 
 func (cb *Callbacks) OnStreamOpen(_ context.Context, id int64, typ string) error {
-	cb.Logger.Debug().Str("type", typ).Msgf("stream %d open", id)
+	zLog.Debug().Str("type", typ).Int64("id", id).Msg("stream closed")
 	return nil
 }
 
 func (cb *Callbacks) OnStreamClosed(id int64) {
-	cb.Logger.Debug().Msgf("stream %d closed\n", id)
+	zLog.Debug().Int64("id", id).Msg("stream closed")
 }
 
 func (cb *Callbacks) OnDeltaStreamOpen(_ context.Context, id int64, typ string) error {
-	cb.Logger.Debug().Str("type", typ).Msgf("delta stream %d open", id)
+	cb.Logger.Debugf("delta stream %d open, type %s", id, typ)
 	return nil
 }
 
 func (cb *Callbacks) OnDeltaStreamClosed(id int64) {
-	cb.Logger.Debug().Msgf("delta stream %d closed\n", id)
+	cb.Logger.Debugf("delta stream %d closed", id)
 }
 
 func (cb *Callbacks) OnStreamRequest(id int64, req *discovery.DiscoveryRequest) error {
-	cb.Logger.Debug().Interface("request", req).Msgf("stream request id %d", id)
+	zLog.Debug().Interface("request", req).Msg("OnStreamRequest")
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	cb.Requests++
-	if len(req.ResourceNames) > 0 {
-		cb.subscriber.Subscribe(req.ResourceNames[0])
+	if req.TypeUrl == resource.SecretType {
+		for _, name := range req.ResourceNames {
+			cb.Logger.Debugf("stream resource %s", name)
+			cb.subscriber.Subscribe(req.Node.Id, name)
+		}
 	}
-
 
 	if cb.Signal != nil {
 		close(cb.Signal)
@@ -65,13 +76,13 @@ func (cb *Callbacks) OnStreamResponse(context.Context, int64, *discovery.Discove
 }
 
 func (cb *Callbacks) OnStreamDeltaResponse(id int64, req *discovery.DeltaDiscoveryRequest, res *discovery.DeltaDiscoveryResponse) {
-	cb.Logger.Debug().Interface("request", req).Interface("response", res).Msgf("delta stream request id %d", id)
+	cb.Logger.Debugf("delta stream request id %d, request %+v, response %+v", id, req, res)
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	cb.DeltaResponses++
 }
 func (cb *Callbacks) OnStreamDeltaRequest(id int64, req *discovery.DeltaDiscoveryRequest) error {
-	cb.Logger.Debug().Interface("request", req).Msgf("delta stream request id %d", id)
+	cb.Logger.Debugf("delta stream request id %d, request %+v", id, req)
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	cb.DeltaRequests++
@@ -84,7 +95,7 @@ func (cb *Callbacks) OnStreamDeltaRequest(id int64, req *discovery.DeltaDiscover
 }
 
 func (cb *Callbacks) OnFetchRequest(_ context.Context, req *discovery.DiscoveryRequest) error {
-	cb.Logger.Debug().Interface("request", req).Msgf("on fetch request")
+	cb.Logger.Debugf("on fetch request %+v", req)
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	cb.Fetches++
@@ -96,3 +107,7 @@ func (cb *Callbacks) OnFetchRequest(_ context.Context, req *discovery.DiscoveryR
 }
 
 func (cb *Callbacks) OnFetchResponse(*discovery.DiscoveryRequest, *discovery.DiscoveryResponse) {}
+
+func (cb *Callbacks) Stop() {
+	cb.subscriber.Stop()
+}

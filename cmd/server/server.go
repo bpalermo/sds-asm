@@ -40,10 +40,10 @@ func main() {
 func setup(isDebug bool) *server.SdsServer {
 	if isDebug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		l.Infof("debug log enabled")
+		l.Debugf("debug log enabled")
 	}
 
-	srv, err := server.New(
+	srv, err := server.NewServer(
 		helper.GetEnv("AWS_REGION", "us-east-1"),
 		helper.GetEnv("AWS_ENDPOINT", ""), l)
 	if err != nil {

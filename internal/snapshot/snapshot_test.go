@@ -6,5 +6,7 @@ import (
 )
 
 func TestGenerateSnapshot(t *testing.T) {
-	assert.NotNil(t, GenerateSnapshot())
+	snap, err := GenerateSnapshot()
+	assert.NotNil(t, snap)
+	assert.Nil(t, err)
 }
