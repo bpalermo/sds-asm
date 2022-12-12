@@ -11,18 +11,18 @@ import (
 
 func TestNew(t *testing.T) {
 	l := log.Logger{}
-	s, err := New("", "", l)
+	s, err := NewServer("", "", l)
 	assert.Nil(t, err)
 	assert.NotNil(t, s)
-	assert.NotNil(t, s.c)
+	assert.NotNil(t, s.cache)
 	assert.NotNil(t, s.sigCh)
-	assert.NotNil(t, s.srv)
-	assert.NotNil(t, s.s)
+	assert.NotNil(t, s.grpcServer)
+	assert.NotNil(t, s.callbacks)
 }
 
 func TestSdsServer_Run(t *testing.T) {
 	l := log.Logger{}
-	s, err := New("", "", l)
+	s, err := NewServer("", "", l)
 	assert.Nil(t, err)
 
 	errs := &errgroup.Group{}

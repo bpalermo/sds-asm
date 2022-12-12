@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -10,7 +12,10 @@ import (
 type MockSubscribe struct {
 }
 
-func (s *MockSubscribe) Subscribe(secretId string) {
+func (s *MockSubscribe) Subscribe(_ string, _ string) {
+}
+
+func (s *MockSubscribe) Stop() {
 }
 
 func TestCallbacks_OnDeltaStreamClosed(t *testing.T) {
@@ -45,6 +50,10 @@ func TestCallbacks_OnStreamRequest(t *testing.T) {
 		subscriber: &MockSubscribe{},
 	}
 	err := c.OnStreamRequest(1, &discovery.DiscoveryRequest{
+		Node: &corev3.Node{
+			Id: "test-01",
+		},
+		TypeUrl: resource.SecretType,
 		ResourceNames: []string{
 			"test",
 		},

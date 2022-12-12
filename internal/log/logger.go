@@ -1,17 +1,15 @@
 package log
 
 import (
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
 type Logger struct {
-	zerolog.Logger
 }
 
 // Debugf log to stdout only if Debug is true.
 func (logger Logger) Debugf(format string, args ...interface{}) {
-	log.Printf(format, args...)
+	log.Debug().Msgf(format, args...)
 }
 
 // Infof log to stdout only if Debug is true.

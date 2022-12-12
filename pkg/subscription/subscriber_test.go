@@ -8,7 +8,7 @@ import (
 
 func TestNewSubscriber(t *testing.T) {
 	l := log.Logger{}
-	s, err := New("", "", l)
+	s, err := NewSubscriber("", "", l)
 	assert.Nil(t, err)
 	assert.NotNil(t, s)
 	assert.NotNil(t, s.api)
